@@ -1,0 +1,19 @@
+# Local Postgres for development. Production runs against Supabase or RDS.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: leadpipe
+      POSTGRES_PASSWORD: leadpipe
+      POSTGRES_DB: leadpipe
+    ports:
+      - "5432:5432"
+    volumes:
+      - leadpipe_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadpipe"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  leadpipe_pg:
