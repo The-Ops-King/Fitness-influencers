@@ -113,6 +113,31 @@ def enrich_cmd(limit: int | None, statuses: tuple[str, ...]) -> None:
     click.echo(json.dumps(run_enrichment(limit, tuple(statuses)), indent=2))
 
 
+@cli.command("enrich-followers")
+@click.option("--limit", type=int, default=None, help="Cap the number of handles (and billed results).")
+@click.option("--run-id", default=None)
+@click.option("--dry-run", is_flag=True, help="List the work without calling Apify.")
+def enrich_followers_cmd(limit: int | None, run_id: str | None, dry_run: bool) -> None:
+    """Fetch follower counts for handles that are missing them (module 3, enrich only).
+
+    One billed Apify result per handle, rather than the tens of thousands a
+    discovery run costs. Run `normalize` afterwards to merge the counts in, then
+    `rescore` to apply the follower bands.
+    """
+    if not get_config().apify_token:
+        raise click.ClickException(
+            "APIFY_TOKEN is not set. Follower counts are the one part of the "
+            "pipeline that is not free; everything else runs without it."
+        )
+    ctx = ModuleContext(
+        run_id=run_id or uuid.uuid4().hex[:12],
+        limit=limit,
+        dry_run=dry_run,
+        options={"enrich_only": True},
+    )
+    click.echo(json.dumps(run_module("m3_instagram", ctx), indent=2))
+
+
 @cli.command("rescore")
 @click.option("--where", default="status <> 'rejected'", help="SQL predicate over `coaches`.")
 def rescore_cmd(where: str) -> None:

@@ -92,6 +92,9 @@ class Config:
     apify_token: str | None
     apify_instagram_profile_actor: str
     apify_instagram_hashtag_actor: str
+    #: Hard cap on Apify results per run. Apify bills per result, so this is a
+    #: spend ceiling, not just a rate limit.
+    apify_max_results: int | None
 
     # YouTube
     youtube_api_key: str | None
@@ -128,6 +131,7 @@ class Config:
             apify_instagram_hashtag_actor=os.getenv(
                 "APIFY_IG_HASHTAG_ACTOR", "apify~instagram-hashtag-scraper"
             ),
+            apify_max_results=_optional_int("APIFY_MAX_RESULTS_PER_RUN", 5000),
             youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
             email_verifier=os.getenv("EMAIL_VERIFIER", "none").lower(),
             email_verifier_key=os.getenv("EMAIL_VERIFIER_KEY"),

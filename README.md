@@ -131,7 +131,7 @@ without it:
 | M2 Meta Ad Library | The API is free; needs a developer app plus ID verification | $0 |
 | M4 YouTube | 10,000 units/day free quota | $0 |
 | Instagram **handles** | Harvested by M1, M2, M4, M5, M6 and the site scrape | $0 |
-| Instagram **follower counts** | Requires M3 (Apify) | not free |
+| Instagram **follower counts** | `leadpipe enrich-followers` — module 3 in enrichment-only mode | ~$2–12 one-off |
 
 Leave `APIFY_TOKEN` and `EMAIL_VERIFIER` unset. Module 3 skips itself cleanly,
 `cold_email.csv` comes out empty by design, and `instagram_dm.csv` fills.
@@ -141,10 +141,38 @@ combined, so one sweep cannot burn a whole month's free allowance. Free tiers ar
 rate limited to roughly a query a second, so a full run takes hours rather than
 minutes — that is the main thing you trade for the cost.
 
-What you give up without module 3: no follower counts, so the >150K
-big-name disqualifier and the follower scoring bands do not fire. In practice
-agencies and big names still get caught by the team-language filter. Add M3
-later and `leadpipe rescore` backfills the scores with no re-scraping.
+What you give up without follower data: the >150K big-name disqualifier and the
+follower scoring bands do not fire. In practice agencies and big names still get
+caught by the team-language filter — but see below, since getting the data back
+is cheap.
+
+### Follower counts without a discovery run
+
+Module 3 has two modes, and they differ by orders of magnitude in cost:
+
+| Mode | What it does | Billed Apify results |
+|---|---|---|
+| discovery (default) | Hashtag seeding, bio search, follow-graph expansion | ~17,500 per run |
+| `enrich-followers` | One profile lookup per handle already in the database | 1 per handle |
+
+Because handles are harvested free by the other modules, discovery is rarely
+worth paying for. Enrichment-only is:
+
+```bash
+leadpipe enrich-followers --limit 2000   # one billed result per handle
+leadpipe normalize                       # merge the counts in
+leadpipe rescore                         # apply the follower bands
+```
+
+The work list is "records with a handle and no follower count", ordered by score
+descending, so a `--limit` spends on the best records first. Once a record has a
+count it drops off the list, so a weekly run never re-bills for it.
+`APIFY_MAX_RESULTS_PER_RUN` (default 5000) is a hard ceiling on top of that.
+
+Note the asymmetry this mode is built around: the >150K bound is a global
+disqualifier, but the 1K floor is only a *discovery* filter. So enrichment
+deliberately keeps out-of-band profiles rather than dropping them — otherwise a
+400K-follower account already in the database would never get rejected.
 
 ## Setup
 
@@ -170,6 +198,9 @@ leadpipe normalize
 
 # Site scrape, email discovery + verification, re-score
 leadpipe enrich --limit 2000
+
+# Follower counts for handles already in the database (module 3, enrich only)
+leadpipe enrich-followers --limit 2000
 
 # Retune weights without re-scraping
 leadpipe rescore
@@ -204,7 +235,7 @@ deliverable**. Hard bounces are dropped before they reach a sending domain, and
 ## Testing
 
 ```bash
-pytest -q     # 175 tests, no network or database required
+pytest -q     # 183 tests, no network or database required
 ```
 
 The scoring, dedupe, normalization, filtering, enrichment, export, and idempotency

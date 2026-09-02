@@ -272,6 +272,29 @@ def iter_coaches(where: str = "TRUE", params: tuple | list = (), batch: int = 50
 # ---------------------------------------------------------------------------
 
 
+def handles_missing_followers(limit: int | None = None) -> list[str]:
+    """Instagram handles on live records that have no follower count yet.
+
+    This is the work list for module 3's enrichment-only mode: one paid Apify
+    result per handle, instead of the tens of thousands a discovery run costs.
+    """
+    sql = """
+        SELECT instagram_handle
+        FROM coaches
+        WHERE instagram_handle IS NOT NULL
+          AND instagram_followers IS NULL
+          AND status <> 'rejected'
+        ORDER BY qualification_score DESC, id
+    """
+    params: list[Any] = []
+    if limit:
+        sql += " LIMIT %s"
+        params.append(limit)
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        return [r["instagram_handle"] for r in cur.fetchall()]
+
+
 def start_module_run(run_id: str, module: str) -> int:
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
