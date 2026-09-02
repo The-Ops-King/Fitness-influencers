@@ -39,6 +39,18 @@ def _float(name: str, default: float) -> float:
         return default
 
 
+def _optional_int(name: str, default: int | None) -> int | None:
+    """Like _int, but an explicit empty value or 0 means "no limit"."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return None if value <= 0 else value
+
+
 def _list(name: str) -> list[str]:
     raw = os.getenv(name, "")
     return [p.strip() for p in raw.split(",") if p.strip()]
@@ -67,7 +79,10 @@ class Config:
     serper_api_key: str | None
     serpapi_key: str | None
     scraperapi_key: str | None
-    serp_provider: str  # serper | serpapi | scraperapi
+    brave_api_key: str | None
+    serp_provider: str  # auto | brave | duckduckgo | serper | serpapi | scraperapi
+    #: Hard cap on SERP calls per run, shared across modules 1, 5 and 6.
+    serp_max_calls: int | None
 
     # Meta
     meta_access_token: str | None
@@ -101,7 +116,9 @@ class Config:
             serper_api_key=os.getenv("SERPER_API_KEY"),
             serpapi_key=os.getenv("SERPAPI_KEY"),
             scraperapi_key=os.getenv("SCRAPERAPI_KEY"),
-            serp_provider=os.getenv("SERP_PROVIDER", "serper").lower(),
+            brave_api_key=os.getenv("BRAVE_API_KEY"),
+            serp_provider=os.getenv("SERP_PROVIDER", "auto").lower(),
+            serp_max_calls=_optional_int("SERP_MAX_CALLS_PER_RUN", 2000),
             meta_access_token=os.getenv("META_ACCESS_TOKEN"),
             meta_api_version=os.getenv("META_API_VERSION", "v21.0"),
             apify_token=os.getenv("APIFY_TOKEN"),
@@ -121,7 +138,7 @@ class Config:
             nurture_score_floor=_int("NURTURE_SCORE_FLOOR", 30),
             limits={
                 "serp": ModuleLimits(
-                    requests_per_second=_float("SERP_RPS", 2.0),
+                    requests_per_second=_float("SERP_RPS", 1.0),
                     max_concurrency=_int("SERP_CONCURRENCY", 4),
                     proxies=_list("SERP_PROXIES"),
                 ),

@@ -14,17 +14,27 @@ from .filters import has_call_language, has_physical_address, has_team_language
 from .models import Coach
 from .normalize import is_booking_url
 
-WEIGHTS_VERSION = "v1"
+# v2: Instagram-first. Instagram DM is the primary outreach channel, so having
+# a handle is worth points in its own right and a verified email is a bonus
+# rather than the main event. v1 weights are preserved in git history, and every
+# score_events row is stamped with the version that produced it, so the two are
+# still comparable after a `leadpipe rescore`.
+WEIGHTS_VERSION = "v2"
 
 WEIGHTS: dict[str, int] = {
     "booking_link": 30,
     "slot_30_plus": 10,
     "ads_90_plus": 20,
     "ads_under_90": 10,
+    # The contact channel. Without it there is no way to reach this person,
+    # however well they otherwise fit the ICP.
+    "instagram_handle": 15,
     "followers_core": 15,      # 3K-75K
     "followers_edge": 7,       # 1K-3K or 75K-150K
     "multi_source": 10,        # found by 2+ modules
-    "verified_email": 10,
+    # Was 10 under v1's email-first weighting. Still useful as a second channel,
+    # but no longer something a record should be penalised for lacking.
+    "verified_email": 3,
     "call_language": 5,
     "team_language": -30,
     "physical_address": -40,
@@ -79,6 +89,12 @@ def score_coach(
         else:
             breakdown["ads_under_90"] = WEIGHTS["ads_under_90"]
 
+    if coach.instagram_handle:
+        breakdown["instagram_handle"] = WEIGHTS["instagram_handle"]
+
+    # Follower data is only available when module 3 has run. Its absence must
+    # not depress the score of an otherwise reachable coach, so there is no
+    # penalty here - the bands are a bonus when the data exists.
     followers = coach.instagram_followers
     if followers is not None:
         if 3_000 <= followers <= 75_000:

@@ -25,9 +25,13 @@ COLD_EMAIL_COLUMNS = [
     "personalization_detail", "qualification_score", "source_modules",
 ]
 
+# The primary export: Instagram DM is the main outreach channel, so this
+# carries everything needed to open a conversation without a second lookup.
 INSTAGRAM_DM_COLUMNS = [
-    "instagram_handle", "first_name", "full_name", "niche", "followers",
-    "booking_url", "personalization_detail", "qualification_score",
+    "instagram_handle", "profile_url", "first_name", "full_name", "business_name",
+    "niche", "followers", "booking_url", "booking_platform", "website",
+    "running_meta_ads", "ad_days_running", "personalization_detail",
+    "qualification_score", "source_modules",
 ]
 
 # Meta's expected custom-audience column names.
@@ -143,31 +147,45 @@ def export_cold_email(rows: Iterable[dict[str, Any]], path: Path, min_score: int
 
 
 def export_instagram_dm(rows: Iterable[dict[str, Any]], path: Path, min_score: int = 40) -> ExportResult:
-    """Handles only, score 40+ - DM does not need a verified email."""
+    """The primary outreach list. Handles only - DM needs no verified email.
 
-    def build() -> Iterable[dict[str, Any]]:
-        seen: set[str] = set()
-        for row in rows:
-            handle = (row.get("instagram_handle") or "").strip().lstrip("@").lower()
-            if not handle or handle in seen:
-                continue
-            if (row.get("qualification_score") or 0) < min_score:
-                continue
-            if row.get("status") == "rejected":
-                continue
-            seen.add(handle)
-            yield {
+    Sorted by score descending: DM is worked by hand, so the order the rows come
+    out in is the order they get worked.
+    """
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for row in rows:
+        handle = (row.get("instagram_handle") or "").strip().lstrip("@").lower()
+        if not handle or handle in seen:
+            continue
+        if (row.get("qualification_score") or 0) < min_score:
+            continue
+        if row.get("status") == "rejected":
+            continue
+        seen.add(handle)
+        selected.append(
+            {
                 "instagram_handle": handle,
+                "profile_url": f"https://instagram.com/{handle}",
                 "first_name": _first_name(row.get("full_name")),
                 "full_name": row.get("full_name") or "",
+                "business_name": row.get("business_name") or "",
                 "niche": row.get("niche") or "",
                 "followers": row.get("instagram_followers") or "",
                 "booking_url": row.get("booking_url") or "",
+                "booking_platform": row.get("booking_platform") or "",
+                "website": row.get("website") or "",
+                "running_meta_ads": "yes" if row.get("running_meta_ads") else "",
+                "ad_days_running": row.get("ad_days_running") or "",
                 "personalization_detail": personalization_detail(row),
                 "qualification_score": row.get("qualification_score") or 0,
+                "source_modules": "|".join(row.get("source_modules") or []),
             }
+        )
 
-    return _write(path, INSTAGRAM_DM_COLUMNS, build())
+    selected.sort(key=lambda r: r["qualification_score"], reverse=True)
+    return _write(path, INSTAGRAM_DM_COLUMNS, selected)
 
 
 def export_meta_audience(

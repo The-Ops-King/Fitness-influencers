@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from ..enrich.booking import inspect_booking_page, resolve_link_in_bio
@@ -20,6 +21,7 @@ from ..models import RawRecord
 from ..normalize import (
     is_booking_url,
     is_link_in_bio,
+    normalize_instagram_handle,
     normalize_url,
 )
 from .base import ModuleContext, SourceModule, register
@@ -41,6 +43,24 @@ AD_FIELDS = ",".join(
         "publisher_platforms",
     ]
 )
+
+
+@dataclass
+class LandingFacts:
+    """What following an ad's landing page turned up."""
+
+    booking_url: str | None = None
+    slot_minutes: int | None = None
+    instagram_handle: str | None = None
+    text: str = ""
+
+
+def _first_handle(urls: list[str]) -> str | None:
+    for url in urls:
+        handle = normalize_instagram_handle(url)
+        if handle:
+            return handle
+    return None
 
 
 class MetaAdsModule(SourceModule):
@@ -91,7 +111,7 @@ class MetaAdsModule(SourceModule):
                     captions = ad.get("ad_creative_link_captions") or []
 
                     landing = _first_landing_page(captions)
-                    booking_url, slot_minutes, landing_text = self._follow_landing(landing, web)
+                    facts = self._follow_landing(landing, web)
 
                     yield RawRecord(
                         source_module=self.name,
@@ -100,13 +120,14 @@ class MetaAdsModule(SourceModule):
                             "business_name": page_name,
                             "facebook_page": f"https://facebook.com/{page_id}" if page_id else None,
                             "website": landing,
-                            "booking_url": booking_url,
-                            "booking_slot_minutes": slot_minutes,
+                            "booking_url": facts.booking_url,
+                            "booking_slot_minutes": facts.slot_minutes,
+                            "instagram_handle": facts.instagram_handle,
                             "running_meta_ads": True,
                             "ad_first_seen_date": start.isoformat() if start else None,
                             "ad_days_running": days,
                             "location_country": countries[0] if countries else None,
-                            "evidence_text": " ".join(p for p in (ad_copy, titles, landing_text) if p),
+                            "evidence_text": " ".join(p for p in (ad_copy, titles, facts.text) if p),
                             "meta_ad_id": ad.get("id"),
                             "search_term": term,
                         },
@@ -116,21 +137,39 @@ class MetaAdsModule(SourceModule):
                 params = None
 
     @staticmethod
-    def _follow_landing(landing: str | None, web: HttpClient) -> tuple[str | None, int | None, str]:
-        """Re-run booking detection on the ad's landing page."""
+    def _follow_landing(landing: str | None, web: HttpClient) -> LandingFacts:
+        """Re-run booking detection on the ad's landing page.
+
+        The Instagram handle is harvested here too. A coach paying for Meta ads
+        almost always links their Instagram from the landing page, and that
+        handle is the primary contact channel - dropping it would waste the
+        page fetch this module has already paid for.
+        """
         if not landing:
-            return None, None, ""
+            return LandingFacts()
 
         if is_booking_url(landing):
             facts = inspect_booking_page(landing, client=web)
-            return landing, facts.slot_minutes, facts.text[:3000]
+            return LandingFacts(
+                booking_url=landing,
+                slot_minutes=facts.slot_minutes,
+                instagram_handle=facts.instagram_handle,
+                text=facts.text[:3000],
+            )
 
         if is_link_in_bio(landing):
+            # A bio hub also exposes the Instagram link alongside the booking one.
+            handle = _first_handle(resolve_link_in_bio(landing, client=web, keep_all=True))
             for candidate in resolve_link_in_bio(landing, client=web):
                 facts = inspect_booking_page(candidate, client=web)
                 if facts.reachable:
-                    return candidate, facts.slot_minutes, facts.text[:3000]
-            return None, None, ""
+                    return LandingFacts(
+                        booking_url=candidate,
+                        slot_minutes=facts.slot_minutes,
+                        instagram_handle=facts.instagram_handle or handle,
+                        text=facts.text[:3000],
+                    )
+            return LandingFacts(instagram_handle=handle)
 
         # A normal landing page: look for the booking link on it.
         from ..enrich.site_scrape import scrape_site
@@ -138,8 +177,13 @@ class MetaAdsModule(SourceModule):
         site = scrape_site(landing, client=web, max_pages=2)
         if site.booking_urls:
             facts = inspect_booking_page(site.booking_urls[0], client=web)
-            return site.booking_urls[0], facts.slot_minutes, site.text[:3000]
-        return None, None, site.text[:3000]
+            return LandingFacts(
+                booking_url=site.booking_urls[0],
+                slot_minutes=facts.slot_minutes,
+                instagram_handle=site.instagram_handle or facts.instagram_handle,
+                text=site.text[:3000],
+            )
+        return LandingFacts(instagram_handle=site.instagram_handle, text=site.text[:3000])
 
 
 def _first_landing_page(captions: list[str]) -> str | None:

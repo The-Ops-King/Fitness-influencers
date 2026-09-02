@@ -129,3 +129,39 @@ def test_unverified_addresses_are_reported_not_dropped_silently(tmp_path, caplog
         result = export_cold_email(rows, tmp_path / "cold.csv")
     assert result.rows == 0
     assert "not verified deliverable" in caplog.text
+
+
+# -- Instagram DM: the primary export under an Instagram-first ICP ----------
+
+
+def test_dm_export_carries_everything_needed_to_open_a_conversation(tmp_path):
+    row = read(export_instagram_dm([BASE], tmp_path / "dm.csv").path)[0]
+    assert row["profile_url"] == "https://instagram.com/jessfit"
+    assert row["business_name"] == "Jess Ryan Coaching"
+    assert row["booking_platform"] == "calendly"
+    assert row["website"] == "https://jessryanfit.com"
+    assert row["running_meta_ads"] == "yes"
+    assert row["ad_days_running"] == "140"
+    assert row["source_modules"] == "m1_booking_serp|m3_instagram"
+
+
+def test_dm_export_is_sorted_by_score_descending(tmp_path):
+    rows = [
+        {**BASE, "instagram_handle": "low", "qualification_score": 45},
+        {**BASE, "instagram_handle": "high", "qualification_score": 95},
+        {**BASE, "instagram_handle": "mid", "qualification_score": 70},
+    ]
+    written = read(export_instagram_dm(rows, tmp_path / "dm.csv").path)
+    assert [r["instagram_handle"] for r in written] == ["high", "mid", "low"]
+
+
+def test_dm_export_works_without_follower_data(tmp_path):
+    """The free path has no follower counts; the export must not require them."""
+    rows = [{**BASE, "instagram_followers": None}]
+    written = read(export_instagram_dm(rows, tmp_path / "dm.csv").path)
+    assert len(written) == 1 and written[0]["followers"] == ""
+
+
+def test_a_record_with_no_handle_never_reaches_the_dm_list(tmp_path):
+    rows = [{**BASE, "instagram_handle": None, "qualification_score": 100}]
+    assert export_instagram_dm(rows, tmp_path / "dm.csv").rows == 0

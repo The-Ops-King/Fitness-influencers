@@ -63,9 +63,14 @@ def test_multi_source_presence_scores():
 
 
 def test_only_a_deliverable_email_scores():
-    assert score_coach(Coach(email_verify_status="deliverable")).breakdown["verified_email"] == 10
+    assert score_coach(Coach(email_verify_status="deliverable")).breakdown["verified_email"] == 3
     assert not score_coach(Coach(email_verify_status="risky")).breakdown
     assert not score_coach(Coach(email_verify_status="guessed")).breakdown
+
+
+def test_email_is_a_bonus_not_the_main_channel():
+    """Instagram-first: a handle must outweigh a verified email."""
+    assert WEIGHTS["instagram_handle"] > WEIGHTS["verified_email"]
 
 
 def test_penalties_apply_and_score_floors_at_zero():
@@ -85,12 +90,34 @@ def test_score_is_capped_at_100():
         booking_slot_minutes=45,
         running_meta_ads=True,
         ad_days_running=200,
+        instagram_handle="jessfit",
         instagram_followers=12_000,
         source_modules=["m1_booking_serp", "m2_meta_ads", "m3_instagram"],
         email_verify_status="deliverable",
         evidence_text="book a discovery call",
     )
+    assert sum(score_coach(coach).breakdown.values()) > 100
     assert score_coach(coach).total == 100
+
+
+def test_having_a_handle_scores():
+    assert score_coach(Coach(instagram_handle="jessfit")).breakdown["instagram_handle"] == 15
+    assert "instagram_handle" not in score_coach(Coach()).breakdown
+
+
+def test_a_contactable_coach_clears_the_dm_floor_without_follower_data():
+    """The free path has no follower counts; a reachable coach must still qualify."""
+    coach = Coach(booking_url="https://calendly.com/jess/30min", instagram_handle="jessfit")
+    assert coach.instagram_followers is None
+    assert score_coach(coach).total >= 40
+
+
+def test_missing_follower_data_is_not_penalised():
+    with_followers = Coach(booking_url="https://cal.com/j", instagram_handle="j", instagram_followers=12_000)
+    without = Coach(booking_url="https://cal.com/j", instagram_handle="j")
+    # Follower data is a bonus when present, never a deduction when absent.
+    assert score_coach(with_followers).total > score_coach(without).total
+    assert "followers_core" not in score_coach(without).breakdown
 
 
 @pytest.mark.parametrize(

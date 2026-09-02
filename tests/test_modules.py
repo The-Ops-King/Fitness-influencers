@@ -99,3 +99,13 @@ def test_present_credentials_allow_a_module_to_run():
 def test_unknown_module_raises():
     with pytest.raises(KeyError):
         run_module("nope", ModuleContext(run_id="t", dry_run=True))
+
+
+def test_meta_ads_landing_facts_carry_the_instagram_handle():
+    """A coach paying for ads links Instagram on the landing page; keep it."""
+    from leadpipe.modules.m2_meta_ads import LandingFacts, _first_handle
+
+    facts = LandingFacts(booking_url="https://cal.com/j", instagram_handle="jessfit")
+    assert facts.instagram_handle == "jessfit"
+    assert _first_handle(["https://example.com", "https://instagram.com/jessfit/"]) == "jessfit"
+    assert _first_handle(["https://example.com"]) is None

@@ -146,7 +146,7 @@ def export_cmd(out: Path, email_floor: int | None, dm_floor: int, audience_floor
 
 @cli.command("stats")
 def stats_cmd() -> None:
-    """Counts by status, tier, and source module."""
+    """Counts by status, tier, source module, and Instagram reachability."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT status, count(*) AS n FROM coaches GROUP BY status ORDER BY n DESC")
         by_status = {r["status"]: r["n"] for r in cur.fetchall()}
@@ -172,6 +172,19 @@ def stats_cmd() -> None:
         cur.execute("SELECT count(*) AS n FROM coaches WHERE cardinality(source_modules) >= 2")
         multi_source = cur.fetchone()["n"]
 
+        # Instagram DM is the primary channel, so reachability is the headline
+        # number: a perfectly qualified record with no handle cannot be worked.
+        cur.execute(
+            """
+            SELECT count(*) FILTER (WHERE instagram_handle IS NOT NULL)        AS with_handle,
+                   count(*) FILTER (WHERE instagram_handle IS NULL)            AS without_handle,
+                   count(*) FILTER (WHERE instagram_handle IS NOT NULL
+                                      AND qualification_score >= 40)           AS dm_ready
+            FROM coaches WHERE status <> 'rejected'
+            """
+        )
+        reach = dict(cur.fetchone())
+
         cur.execute("SELECT count(*) AS n FROM raw_records WHERE processed_at IS NULL")
         pending = cur.fetchone()["n"]
 
@@ -182,6 +195,7 @@ def stats_cmd() -> None:
                 "by_tier": by_tier,
                 "by_source_module": by_module,
                 "multi_source_records": multi_source,
+                "reachability": reach,
                 "staging_pending": pending,
             },
             indent=2,

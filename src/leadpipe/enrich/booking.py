@@ -98,11 +98,16 @@ def inspect_booking_page(url: str, client: HttpClient | None = None) -> BookingP
     return facts
 
 
-def resolve_link_in_bio(url: str, client: HttpClient | None = None, max_hops: int = 2) -> list[str]:
+def resolve_link_in_bio(
+    url: str, client: HttpClient | None = None, max_hops: int = 2, keep_all: bool = False
+) -> list[str]:
     """Walk a Linktree / Stan Store / Beacons page and return the links behind it.
 
     The booking link almost always sits one hop behind the bio hub, so following
     it is what turns an Instagram profile into a qualified record.
+
+    `keep_all=True` returns every outbound link instead of only booking ones,
+    which is how the Instagram handle is recovered from a bio hub.
     """
     http = client or HttpClient("web")
     seen: set[str] = set()
@@ -134,6 +139,8 @@ def resolve_link_in_bio(url: str, client: HttpClient | None = None, max_hops: in
                     found.setdefault(clean, None)
                 elif is_link_in_bio(clean):
                     next_frontier.append(clean)
+                elif keep_all:
+                    found.setdefault(clean, None)
         frontier = next_frontier
         if not frontier:
             break

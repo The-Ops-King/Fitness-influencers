@@ -1,8 +1,11 @@
 # leadpipe
 
 Sources, enriches, deduplicates, and scores remote fitness coaches who run their
-own sales calls. Output is a clean database plus three channel-ready CSVs for
-cold email, Instagram DM, and Meta custom audience upload.
+own sales calls. Output is a clean database plus three channel-ready CSVs.
+
+**Instagram DM is the primary outreach channel**, so `instagram_dm.csv` is the
+main deliverable and having a handle is itself a scoring signal. Email is a
+bonus channel. The whole pipeline runs on free tiers — see [Running it free](#running-it-free).
 
 ## The ICP and why the build looks like this
 
@@ -17,6 +20,7 @@ behavioral signals, which is what every module here is doing:
 |---|---|
 | Takes their own sales calls | **A public booking link.** The strongest signal in the pipeline. |
 | Sells on a real call, not a 15-min chat | Booking slot duration of 30–60 minutes |
+| Reachable at all | A public Instagram handle — the contact channel |
 | Does $5–15K/month | Meta ad longevity — an ad running 90+ days is profitable |
 | Is the operator, not a team | Absence of "we" language and a team roster |
 | Remote, not in-person | Absence of a physical address |
@@ -52,9 +56,9 @@ Non-negotiables baked into the design:
 
 | Module | Source | What makes it worth running |
 |---|---|---|
-| `m1_booking_serp` | SERP API over booking domains × fitness terms | Highest signal, lowest anti-bot risk. 193 seed queries × deep pagination. Captures slot duration. |
-| `m2_meta_ads` | Meta Ad Library API | Self-qualifying: paying to book calls. Ad longevity is the best revenue proxy available. Follows the landing page and re-runs booking detection. |
-| `m3_instagram` | Apify actors: hashtags, bio search, follow graph | Highest volume. Follows the link-in-bio **one hop deeper** — Linktree, Stan Store, Beacons and Koji are the middle layer the booking link hides behind. |
+| `m1_booking_serp` | SERP over booking domains × fitness terms | Highest signal, lowest anti-bot risk. 193 seed queries × deep pagination. Captures slot duration and the handle linked from the booking page. |
+| `m2_meta_ads` | Meta Ad Library API | Self-qualifying: paying to book calls. Ad longevity is the best revenue proxy available. Follows the landing page for the booking link **and the Instagram handle**. |
+| `m3_instagram` | Apify actors: hashtags, bio search, follow graph | **Optional, not in the free path.** Only needed to *discover* coaches via Instagram and to fetch follower counts — handles themselves are harvested free by the other modules. Follows the link-in-bio one hop deeper: Linktree, Stan Store, Beacons and Koji are the middle layer the booking link hides behind. |
 | `m4_youtube` | YouTube Data API | Testimonial/transformation content, 500–20K subs. Parses descriptions and the About tab for booking links. |
 | `m5_directories` | Trainerize, TrueCoach, Everfit, PT Distinction, Skool, Upwork, Bark, Thumbtack, service-area GBPs, podcast show notes | Platform exhaust, reached through site: searches. |
 | `m6_testimonials` | Vendor case study / wall-of-love pages | Opportunistic. Everyone named is pre-qualified as someone who already buys software. |
@@ -78,16 +82,23 @@ signal and scores 10 points.
 | Signal | Points |
 |---|---|
 | Has a working booking link | 30 |
+| Has an Instagram handle | 15 |
 | Booking slot 30 min or longer | 10 |
 | Running Meta ads 90+ days | 20 |
 | Running Meta ads under 90 days | 10 |
 | Instagram followers 3K–75K | 15 |
 | Followers 1K–3K or 75K–150K | 7 |
 | Found by 2+ source modules | 10 |
-| Verified deliverable email | 10 |
+| Verified deliverable email | 3 |
 | Explicit call language | 5 |
 | Team or agency language | −30 |
 | Physical gym address | −40 |
+
+Weights are `v2`, Instagram-first. A handle scores because it is the channel you
+actually reach people on; a verified email dropped from 10 to 3 because it is now
+a bonus. **Missing follower data is never a penalty** — the bands are a bonus when
+module 3 has run, so a coach with a booking link and a handle clears the DM floor
+on the free path without any Instagram scraping at all.
 
 Score 50+ → outreach list. 30–49 → nurture pool for later re-verification.
 Weights live in one dict (`scoring.WEIGHTS`) and every score is written to
@@ -98,8 +109,8 @@ after the first run without re-scraping anything.
 
 | Export | Contents | Floor |
 |---|---|---|
+| `instagram_dm.csv` | **The primary list.** Handle, profile URL, name, business, niche, booking link and platform, website, ad longevity, and one scraped personalization detail. Sorted by score descending, since DM is worked by hand. Needs no email. | 40 |
 | `cold_email.csv` | **Verified emails only**, with merge fields: first name, niche, booking platform, and one scraped personalization detail | 50 |
-| `instagram_dm.csv` | Handles only — DM needs no verified email | 40 |
 | `meta_audience.csv` | Emails and phones in Meta's column format (`email,phone,fn,ln,country`), SHA-256 hashed by default | 70 |
 
 The Meta floor is deliberately higher than the outreach floor: a noisy seed list
@@ -108,10 +119,37 @@ produces a fuzzier lookalike.
 Exports are channel-agnostic CSVs. The CRM destination is undecided, and nothing
 here is shaped to a specific vendor.
 
+## Running it free
+
+Every module except `m3_instagram` runs at no cost, and handles are harvested
+without it:
+
+| Piece | Free option | Cost |
+|---|---|---|
+| Storage | Supabase free tier, or the bundled `docker-compose.yml` | $0 |
+| M1 / M5 / M6 SERP | `SERP_PROVIDER=auto` → Brave free tier if `BRAVE_API_KEY` is set, else DuckDuckGo with no key at all | $0 |
+| M2 Meta Ad Library | The API is free; needs a developer app plus ID verification | $0 |
+| M4 YouTube | 10,000 units/day free quota | $0 |
+| Instagram **handles** | Harvested by M1, M2, M4, M5, M6 and the site scrape | $0 |
+| Instagram **follower counts** | Requires M3 (Apify) | not free |
+
+Leave `APIFY_TOKEN` and `EMAIL_VERIFIER` unset. Module 3 skips itself cleanly,
+`cold_email.csv` comes out empty by design, and `instagram_dm.csv` fills.
+
+`SERP_MAX_CALLS_PER_RUN` (default 2000) caps SERP calls across modules 1, 5 and 6
+combined, so one sweep cannot burn a whole month's free allowance. Free tiers are
+rate limited to roughly a query a second, so a full run takes hours rather than
+minutes — that is the main thing you trade for the cost.
+
+What you give up without module 3: no follower counts, so the >150K
+big-name disqualifier and the follower scoring bands do not fire. In practice
+agencies and big names still get caught by the team-language filter. Add M3
+later and `leadpipe rescore` backfills the scores with no re-scraping.
+
 ## Setup
 
 ```bash
-cp .env.example .env          # fill in API keys
+cp .env.example .env          # works as-is; keys only improve it
 docker compose up -d db       # or point DATABASE_URL at Supabase
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -166,7 +204,7 @@ deliverable**. Hard bounces are dropped before they reach a sending domain, and
 ## Testing
 
 ```bash
-pytest -q     # 151 tests, no network or database required
+pytest -q     # 175 tests, no network or database required
 ```
 
 The scoring, dedupe, normalization, filtering, enrichment, export, and idempotency
